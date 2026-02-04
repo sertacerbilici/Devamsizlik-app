@@ -2,41 +2,81 @@ import streamlit as st
 import pandas as pd
 import io
 
-st.set_page_config(page_title="Devamsızlık Takip Sistemi", layout="centered")
+st.set_page_config(page_title="Devamsızlık Takip Sistemi", layout="wide")
 
 st.title("📊 Devamsızlık Takip Uygulaması")
-st.write("MEB'den aldığınız dosyayı (.xlsx veya .xls) yükleyin.")
+st.info("MEB'den aldığınız dosyayı yükleyin. Uygulama otomatik olarak uygun sütunları bulmaya çalışacaktır.")
 
-uploaded_file = st.file_uploader("Excel dosyasını buraya sürükleyin", type=["xlsx", "xls"])
+uploaded_file = st.file_uploader("Excel dosyasını buraya sürükleyin (.xlsx veya .xls)", type=["xlsx", "xls"])
 
 if uploaded_file:
     df = None
     
-    # DOSYA OKUMA STRATEJİSİ: Önce modern, olmazsa eski tip dene
+    # 1. ADIM: DOSYAYI OKUMA (HER TÜRLÜ FORMATI DENER)
     try:
-        # 1. Deneme: Modern Excel (.xlsx) olarak oku
-        df = pd.read_excel(uploaded_file, header=7)
+        # Önce standart modern excel dene
+        df = pd.read_excel(uploaded_file)
     except:
         try:
-            # 2. Deneme: Eski tip Excel (.xls) olarak oku
-            uploaded_file.seek(0) # Dosyayı başa sar
-            df = pd.read_excel(uploaded_file, header=7, engine='xlrd')
-        except Exception as e:
-            st.error("Dosya ne yazık ki okunamadı. Lütfen dosyayı bilgisayarınızda açıp 'Farklı Kaydet' diyerek 'Excel Çalışma Kitabı (.xlsx)' olarak tekrar kaydedip yüklemeyi deneyin.")
-            st.info(f"Hata detayı: {e}")
+            # Olmazsa eski tip excel dene
+            uploaded_file.seek(0)
+            df = pd.read_excel(uploaded_file, engine='xlrd')
+        except:
+            try:
+                # O da olmazsa (MEB dosyaları bazen aslında HTML'dir)
+                uploaded_file.seek(0)
+                df = pd.read_html(uploaded_file)[0]
+            except Exception as e:
+                st.error(f"Dosya okunamadı. Lütfen dosyayı Excel'de açıp 'Farklı Kaydet' diyerek '.xlsx' formatında kaydedip tekrar yükleyin.")
+                st.stop()
 
     if df is not None:
+        # 2. ADIM: BAŞLIK SATIRINI BULMA
+        # MEB dosyalarında üstte çok boşluk olabilir, "Adı Soyadı" yazan satırı arayalım
+        header_row_index = 0
+        found = False
+        for i, row in df.head(20).iterrows():
+            if row.astype(str).str.contains("Adı Soyadı", na=False).any():
+                header_row_index = i
+                found = True
+                break
+        
+        # Eğer başlık bulunduysa tabloyu oradan itibaren başlat
+        if found:
+            df.columns = df.iloc[header_row_index]
+            df = df.iloc[header_row_index + 1:].reset_index(drop=True)
+        
+        # 3. ADIM: SÜTUNLARI TESPİT ETME (Kullanıcının koordinatları veya isimle arama)
         try:
-            # Sütunları ayıkla (E, J, L, N koordinatları: 4, 9, 11, 13)
-            # MEB dosyalarında bazen sütun sayısı değişebilir, güvenli seçim yapalım
-            secilecek_sutunlar = [4, 9, 11, 13]
-            df = df.iloc[:, secilecek_sutunlar]
-            df.columns = ["Adı Soyadı", "Tarihi", "Türü", "Gün Sayısı"]
+            # Sütun isimlerini temizle
+            df.columns = [str(c).strip() for c in df.columns]
             
-            # Veri temizleme
-            df = df.dropna(subset=["Adı Soyadı", "Tarihi"])
-            df["Tarihi"] = pd.to_datetime(df["Tarihi"], errors='coerce')
-            df = df.dropna(subset=["Tarihi"])
+            # Koordinatlara göre çek (Sizin verdiğiniz E, J, L, N yapısı)
+            # Eğer başlıklar bulunamadıysa iloc ile devam et
+            if not found:
+                 raw_df = df.iloc[:, [4, 9, 11, 13]]
+                 raw_df.columns = ["Adı Soyadı", "Tarihi", "Türü", "Gün Sayısı"]
+            else:
+                # Başlığa göre bulmaya çalış, bulamazsa koordinat kullan
+                cols = {}
+                col_map = {"Adı Soyadı": "Adı Soyadı", "Tarih": "Tarihi", "Tür": "Türü", "Gün": "Gün Sayısı"}
+                for target, new_name in col_map.items():
+                    matches = [c for c in df.columns if target in c]
+                    if matches: cols[new_name] = matches[0]
+                
+                if len(cols) >= 3:
+                    raw_df = df[list(cols.values())].copy()
+                    raw_df.columns = list(cols.keys())
+                else:
+                    raw_df = df.iloc[:, [4, 9, 11, 13]]
+                    raw_df.columns = ["Adı Soyadı", "Tarihi", "Türü", "Gün Sayısı"]
+
+            # 4. ADIM: TARİH VE TEMİZLİK
+            # Tarihleri Türkiye formatında (gün önce) okumaya zorla
+            raw_df["Tarihi"] = pd.to_datetime(raw_df["Tarihi"], dayfirst=True, errors='coerce')
+            
+            # Türü temizle (N ve F'yi elemek için)
+            raw_df["Türü"] = raw_df["Türü"].astype(str).str.strip().str.upper()
             
             # Ay Seçimi
             aylar = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", 
@@ -44,34 +84,33 @@ if uploaded_file:
             secilen_ay_adi = st.selectbox("Rapor İstediğiniz Ayı Seçin:", aylar)
             secilen_ay_no = aylar.index(secilen_ay_adi) + 1
             
-            # Filtreleme
-            filtreli_df = df[
-                (df["Türü"] != "N") & 
-                (df["Türü"] != "F") & 
-                (df.Tarihi.dt.month == secilen_ay_no)
-            ]
+            # FİLTRELEME
+            mask = (
+                (raw_df["Türü"] != "N") & 
+                (raw_df["Türü"] != "F") & 
+                (raw_df["Tarihi"].dt.month == secilen_ay_no)
+            )
+            sonuc_df = raw_df[mask].copy()
             
-            # Özet Tablo
-            ozet_tablo = filtreli_df.groupby("Adı Soyadı")["Gün Sayısı"].sum().reset_index()
-            ozet_tablo = ozet_tablo.sort_values(by="Adı Soyadı")
-            
-            st.subheader(f"📅 {secilen_ay_adi} Ayı Raporu")
-            if not ozet_tablo.empty:
-                st.dataframe(ozet_tablo, use_container_width=True)
+            # ÖZET VE SIRALAMA
+            if not sonuc_df.empty:
+                ozet = sonuc_df.groupby("Adı Soyadı")["Gün Sayısı"].sum().reset_index()
+                ozet = ozet.sort_values("Adı Soyadı")
+                
+                st.success(f"{secilen_ay_adi} Ayı İçin {len(ozet)} Kayıt Bulundu.")
+                st.dataframe(ozet, use_container_width=True)
                 
                 # İndirme Butonu
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    ozet_tablo.to_excel(writer, index=False, sheet_name='Rapor')
+                    ozet.to_excel(writer, index=False)
                 
-                st.download_button(
-                    label="📄 Excel Olarak İndir",
-                    data=output.getvalue(),
-                    file_name=f"Rapor_{secilen_ay_adi}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                st.download_button("📥 Raporu Excel Olarak İndir", output.getvalue(), f"Rapor_{secilen_ay_adi}.xlsx")
             else:
-                st.warning("Bu ayda kriterlere uygun kayıt bulunamadı.")
+                st.warning(f"{secilen_ay_adi} ayında 'N' veya 'F' harici bir devamsızlık bulunamadı.")
+                # Hata ayıklama için yüklenen veriden örnek göster (Gizli)
+                with st.expander("Yüklenen Veriden Örnek (Hata Ayıklama)"):
+                    st.write(raw_df.head(10))
+
         except Exception as e:
-            st.error("Veriler işlenirken bir sorun oluştu.")
-            st.write(f"Hata detayı: {e}")
+            st.error(f"Veri işleme hatası: {e}")
