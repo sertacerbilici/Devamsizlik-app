@@ -48,6 +48,7 @@ def turkce_sirala(text):
 st.title("📊 Devamsızlık Takip Uygulaması")
 st.markdown("""
 **Lütfen,** e-Okul Devamsızlık Girişi sayfasında bulunan ekran raporlarından **OOK08001R060** kodlu raporu Excel olarak indirip aşağıya yükleyiniz.
+**Not:** Devamsızlık hesaplamalarında F-Faaliyet ve N-Nöbet sayıları hesaplanmamaktadır.
 """)
 
 # Dosya Yükleme Alanı
