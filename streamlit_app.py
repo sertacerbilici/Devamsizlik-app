@@ -1,24 +1,18 @@
-import streamlit as st
-import pandas as pd
-import io
-
-st.set_page_config(page_title="Devamsızlık Takip Sistemi", layout="centered")
-
-st.title("📊 Devamsızlık Takip Uygulaması")
-st.write("MEB'den aldığınız Excel dosyasını yükleyin ve raporunuzu anında alın.")
-
-# 1. Dosya Yükleme Alanı
-uploaded_file = st.file_uploader("Excel dosyasını buraya sürükleyin veya seçin", type=["xlsx"])
+# 1. Dosya Yükleme Alanı (.xls eklendi)
+uploaded_file = st.file_uploader("Excel dosyasını buraya sürükleyin", type=["xlsx", "xls"])
 
 if uploaded_file:
-    # Excel'i oku (Başlıklar 8. satırda olduğu için header=7 diyoruz)
-    df = pd.read_excel(uploaded_file, header=7)
+    # Dosya uzantısına göre motoru belirle
+    file_ext = uploaded_file.name.split(".")[-1]
+    engine = "xlrd" if file_ext == "xls" else "openpyxl"
     
-    # Sütun isimlerini belirle (Senin verdiğin koordinatlara göre)
-    # E: İsim, J: Tarih, L: Tür, N: Gün Sayısı
-    # Pandas 0'dan başladığı için: E=4, J=9, L=11, N=13
-    df = df.iloc[:, [4, 9, 11, 13]]
-    df.columns = ["Adı Soyadı", "Tarihi", "Türü", "Gün Sayısı"]
+    try:
+        # Excel'i oku (Seçilen motorla)
+        df = pd.read_excel(uploaded_file, header=7, engine=engine)
+        
+        # Sütunları ayıkla (Önceki mantıkla aynı)
+        df = df.iloc[:, [4, 9, 11, 13]]
+        df.columns = ["Adı Soyadı", "Tarihi", "Türü", "Gün Sayısı"]
     
     # Boş satırları temizle
     df = df.dropna(subset=["Adı Soyadı", "Tarihi"])
