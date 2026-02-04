@@ -5,67 +5,73 @@ import io
 st.set_page_config(page_title="Devamsızlık Takip Sistemi", layout="centered")
 
 st.title("📊 Devamsızlık Takip Uygulaması")
-st.write("MEB'den aldığınız Excel (.xlsx veya .xls) dosyasını yükleyin ve raporunuzu anında alın.")
+st.write("MEB'den aldığınız dosyayı (.xlsx veya .xls) yükleyin.")
 
-# 1. Dosya Yükleme Alanı
 uploaded_file = st.file_uploader("Excel dosyasını buraya sürükleyin", type=["xlsx", "xls"])
 
 if uploaded_file:
-    # Dosya uzantısına göre motoru belirle
-    file_ext = uploaded_file.name.split(".")[-1]
-    engine = "xlrd" if file_ext == "xls" else "openpyxl"
+    df = None
     
+    # DOSYA OKUMA STRATEJİSİ: Önce modern, olmazsa eski tip dene
     try:
-        # Excel'i oku (Seçilen motorla)
-        df = pd.read_excel(uploaded_file, header=7, engine=engine)
-        
-        # Sütun isimlerini belirle (E, J, L, N koordinatları)
-        df = df.iloc[:, [4, 9, 11, 13]]
-        df.columns = ["Adı Soyadı", "Tarihi", "Türü", "Gün Sayısı"]
-        
-        # Boş satırları temizle
-        df = df.dropna(subset=["Adı Soyadı", "Tarihi"])
-        
-        # Tarih formatını düzelt
-        df["Tarihi"] = pd.to_datetime(df["Tarihi"], errors='coerce')
-        df = df.dropna(subset=["Tarihi"])
-        
-        # 2. Ay Seçimi
-        aylar = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", 
-                 "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
-        secilen_ay_adi = st.selectbox("Lütfen Rapor İstediğiniz Ayı Seçin:", aylar)
-        secilen_ay_no = aylar.index(secilen_ay_adi) + 1
-        
-        # 3. Filtreleme Mantığı (N ve F'yi ele, Ayı süz)
-        filtreli_df = df[
-            (df["Türü"] != "N") & 
-            (df["Türü"] != "F") & 
-            (df.Tarihi.dt.month == secilen_ay_no)
-        ]
-        
-        # 4. Gruplama ve Alfabetik Sıralama
-        ozet_tablo = filtreli_df.groupby("Adı Soyadı")["Gün Sayısı"].sum().reset_index()
-        ozet_tablo = ozet_tablo.sort_values(by="Adı Soyadı")
-        
-        # 5. Sonuçları Göster
-        st.subheader(f"📅 {secilen_ay_adi} Ayı Devamsızlık Raporu")
-        if not ozet_tablo.empty:
-            st.dataframe(ozet_tablo, use_container_width=True)
+        # 1. Deneme: Modern Excel (.xlsx) olarak oku
+        df = pd.read_excel(uploaded_file, header=7)
+    except:
+        try:
+            # 2. Deneme: Eski tip Excel (.xls) olarak oku
+            uploaded_file.seek(0) # Dosyayı başa sar
+            df = pd.read_excel(uploaded_file, header=7, engine='xlrd')
+        except Exception as e:
+            st.error("Dosya ne yazık ki okunamadı. Lütfen dosyayı bilgisayarınızda açıp 'Farklı Kaydet' diyerek 'Excel Çalışma Kitabı (.xlsx)' olarak tekrar kaydedip yüklemeyi deneyin.")
+            st.info(f"Hata detayı: {e}")
+
+    if df is not None:
+        try:
+            # Sütunları ayıkla (E, J, L, N koordinatları: 4, 9, 11, 13)
+            # MEB dosyalarında bazen sütun sayısı değişebilir, güvenli seçim yapalım
+            secilecek_sutunlar = [4, 9, 11, 13]
+            df = df.iloc[:, secilecek_sutunlar]
+            df.columns = ["Adı Soyadı", "Tarihi", "Türü", "Gün Sayısı"]
             
-            # Excel olarak indirme butonu
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                ozet_tablo.to_excel(writer, index=False, sheet_name='Rapor')
+            # Veri temizleme
+            df = df.dropna(subset=["Adı Soyadı", "Tarihi"])
+            df["Tarihi"] = pd.to_datetime(df["Tarihi"], errors='coerce')
+            df = df.dropna(subset=["Tarihi"])
             
-            st.download_button(
-                label="📄 Raporu Excel Olarak İndir",
-                data=output.getvalue(),
-                file_name=f"Devamsizlik_Raporu_{secilen_ay_adi}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-        else:
-            st.warning("Seçilen ayda kriterlere uygun devamsızlık kaydı bulunamadı.")
+            # Ay Seçimi
+            aylar = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", 
+                     "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
+            secilen_ay_adi = st.selectbox("Rapor İstediğiniz Ayı Seçin:", aylar)
+            secilen_ay_no = aylar.index(secilen_ay_adi) + 1
             
-    except Exception as e:
-        st.error(f"Dosya okunurken bir hata oluştu. Lütfen dosyanın formatını kontrol edin.")
-        st.info(f"Hata detayı: {e}")
+            # Filtreleme
+            filtreli_df = df[
+                (df["Türü"] != "N") & 
+                (df["Türü"] != "F") & 
+                (df.Tarihi.dt.month == secilen_ay_no)
+            ]
+            
+            # Özet Tablo
+            ozet_tablo = filtreli_df.groupby("Adı Soyadı")["Gün Sayısı"].sum().reset_index()
+            ozet_tablo = ozet_tablo.sort_values(by="Adı Soyadı")
+            
+            st.subheader(f"📅 {secilen_ay_adi} Ayı Raporu")
+            if not ozet_tablo.empty:
+                st.dataframe(ozet_tablo, use_container_width=True)
+                
+                # İndirme Butonu
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                    ozet_tablo.to_excel(writer, index=False, sheet_name='Rapor')
+                
+                st.download_button(
+                    label="📄 Excel Olarak İndir",
+                    data=output.getvalue(),
+                    file_name=f"Rapor_{secilen_ay_adi}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            else:
+                st.warning("Bu ayda kriterlere uygun kayıt bulunamadı.")
+        except Exception as e:
+            st.error("Veriler işlenirken bir sorun oluştu.")
+            st.write(f"Hata detayı: {e}")
