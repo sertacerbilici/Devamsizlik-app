@@ -2,20 +2,50 @@ import streamlit as st
 import pandas as pd
 import io
 
+# Sayfa Yapılandırması
 st.set_page_config(page_title="Devamsızlık Takip Sistemi", layout="wide")
 
-# TÜRKÇE SIRALAMA İÇİN YARDIMCI FONKSİYON
+# CSS SİHRİ: Sürükle-Bırak metinlerini Türkçeleştirme
+st.markdown("""
+    <style>
+    /* Sürükle bırak yazısını değiştirme */
+    section[data-testid="stFileUploader"] section {
+        padding: 1rem;
+    }
+    section[data-testid="stFileUploader"] label {
+        display: none;
+    }
+    [data-testid="stFileUploaderDropzoneInstructions"] div span {
+        display: none;
+    }
+    [data-testid="stFileUploaderDropzoneInstructions"] div::before {
+        content: "Dosyayı buraya sürükleyip bırakın";
+    }
+    [data-testid="stFileUploaderDropzoneInstructions"] div small {
+        display: none;
+    }
+    [data-testid="stFileUploaderDropzoneInstructions"] div::after {
+        content: "Dosya sınırı: 200MB (.xlsx veya .xls)";
+        font-size: 0.8em;
+        color: gray;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# Türkçe Sıralama Fonksiyonu
 def turkce_sirala(text):
-    # Türkçe karakterlerin alfabedeki doğru yerlerini tanımlıyoruz
     duzeltme = str.maketrans("çğıöşüİÇĞİÖŞÜ", "czioosicgiosu")
     alfabe = "abcçdefgğhıijklmnoöprsştuüvyz"
-    # Her harfi alfabedeki sırasına göre bir sayı dizisine çevirir
     return [alfabe.find(c.lower()) if c.lower() in alfabe else ord(c) for c in str(text)]
 
+# Başlık ve Talimatlar
 st.title("📊 Devamsızlık Takip Uygulaması")
-st.info("Sistem; İsimleri F, Tarihleri K, Türleri M ve Günleri O sütunundan alacak şekilde ayarlandı.")
+st.markdown("""
+**Talimat:** e-Okul Devamsızlık Girişi sayfasında bulunan ekran raporlarından **OOK08001R060** kodlu raporu Excel olarak indirip aşağıya yükleyiniz.
+""")
 
-uploaded_file = st.file_uploader("MEB'den aldığınız Excel dosyasını seçin", type=["xlsx", "xls"])
+# Dosya Yükleme Alanı
+uploaded_file = st.file_uploader("", type=["xlsx", "xls"])
 
 if uploaded_file:
     df_raw = None
@@ -31,64 +61,58 @@ if uploaded_file:
 
     if df_raw is not None:
         try:
-            # 1. VERİLERİ SÜTUNLARDAN ÇEKME (F=5, K=10, M=12, O=14)
+            # Koordinatlardan veriyi çekme (F=5, K=10, M=12, O=14)
             df = df_raw.iloc[6:].copy() 
             df = df.iloc[:, [5, 10, 12, 14]]
             df.columns = ["Adı Soyadı", "Tarihi", "Türü", "Gün Sayısı"]
             
-            # 2. TEMİZLİK VE TARİH DÖNÜŞÜMÜ
+            # Veri Temizleme
             df = df[df["Adı Soyadı"].notna()]
             df = df[df["Adı Soyadı"].astype(str).str.contains("Adı Soyadı") == False]
             df["Tarihi"] = pd.to_datetime(df["Tarihi"], errors='coerce', dayfirst=True)
             df = df.dropna(subset=["Tarihi"])
-            
-            # Gün sayısını 1 ondalık basamaklı sayıya çevir
             df["Gün Sayısı"] = pd.to_numeric(df["Gün Sayısı"], errors='coerce').fillna(0)
             
-            # 3. AY SEÇİMİ VE FİLTRELEME
+            # Ay Seçimi
             aylar = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", 
                      "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
-            secilen_ay_adi = st.selectbox("Rapor İstediğiniz Ayı Seçin:", aylar)
+            secilen_ay_adi = st.selectbox("Lütfen Rapor İstediğiniz Ayı Seçin:", aylar)
             secilen_ay_no = aylar.index(secilen_ay_adi) + 1
             
-            # Tür filtreleme (N ve F'yi ele)
+            # Filtreleme
             df["Türü"] = df["Türü"].astype(str).str.strip().str.upper()
             mask = (df["Türü"] != "N") & (df["Türü"] != "F") & (df["Tarihi"].dt.month == secilen_ay_no)
             final_df = df[mask].copy()
 
-            # 4. ÖZET TABLO VE TÜRKÇE SIRALAMA
             if not final_df.empty:
-                # Toplama yap
+                # Gruplama ve Türkçe Sıralama
                 ozet = final_df.groupby("Adı Soyadı")["Gün Sayısı"].sum().reset_index()
-                
-                # Türkçe karakterlere göre sırala
                 ozet["sirala_key"] = ozet["Adı Soyadı"].apply(turkce_sirala)
                 ozet = ozet.sort_values(by="sirala_key").drop(columns=["sirala_key"])
                 
-                # Gün sayısı formatını düzelt (Örn: 1.5)
+                # Formatlama
                 ozet["Gün Sayısı"] = ozet["Gün Sayısı"].map('{:,.1f}'.format)
-                
-                # NUMARALANDIRMAYI 1'DEN BAŞLAT
                 ozet.index = range(1, len(ozet) + 1)
                 
-                st.success(f"✅ {secilen_ay_adi} ayı raporu hazır!")
+                # BİRLEŞTİRİLMİŞ ŞIK MESAJ
+                st.success(f"✅ {secilen_ay_adi} ayı raporu hazır! Toplam {len(ozet)} öğrenci listelendi.")
                 
-                # TABLO GÖRÜNÜMÜ
+                # Tablo Görünümü
                 st.table(ozet)
                 
-                # EXCEL İNDİRME
+                # Excel İndirme
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                     ozet.to_excel(writer, index=True, index_label="Sıra No")
                 
                 st.download_button(
-                    label="📄 Raporu Excel Olarak İndir",
+                    label="📥 Raporu Excel Olarak İndir",
                     data=output.getvalue(),
                     file_name=f"Devamsizlik_Raporu_{secilen_ay_adi}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
             else:
-                st.warning(f"Seçilen ayda ({secilen_ay_adi}) kayıt bulunamadı.")
+                st.warning(f"Seçilen ayda ({secilen_ay_adi}) herhangi bir devamsızlık kaydı bulunamadı.")
 
         except Exception as e:
             st.error(f"Bir hata oluştu: {e}")
