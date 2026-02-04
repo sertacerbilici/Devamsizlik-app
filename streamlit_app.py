@@ -46,10 +46,12 @@ def turkce_sirala(text):
 
 # Başlık ve Talimatlar
 st.title("📊 Devamsızlık Takip Uygulaması")
-st.markdown("""
-**Lütfen,** e-Okul Devamsızlık Girişi sayfasında bulunan ekran raporlarından **OOK08001R060** kodlu raporu Excel olarak indirip aşağıya yükleyiniz.
-**Not:** Devamsızlık hesaplamalarında F-Faaliyet ve N-Nöbet sayıları hesaplanmamaktadır.
-""")
+
+# ANA TALİMAT (Büyütüldü)
+st.markdown("### Lütfen, e-Okul Devamsızlık Girişi sayfasında bulunan ekran raporlarından **OOK08001R060** kodlu raporu Excel olarak indirip aşağıya yükleyiniz.")
+
+# NOT KISMI (Küçük ve İtalik)
+st.markdown("<p style='font-style: italic; font-size: 0.9em; color: #555;'>Not: Devamsızlık hesaplamalarında F-Faaliyet ve N-Nöbet sayıları hesaplanmamaktadır.</p>", unsafe_allow_html=True)
 
 # Dosya Yükleme Alanı
 uploaded_file = st.file_uploader("", type=["xlsx", "xls"])
@@ -86,7 +88,7 @@ if uploaded_file:
             secilen_ay_adi = st.selectbox("Lütfen Rapor İstediğiniz Ayı Seçin:", aylar)
             secilen_ay_no = aylar.index(secilen_ay_adi) + 1
             
-            # Filtreleme
+            # Filtreleme (N ve F'yi ele)
             df["Türü"] = df["Türü"].astype(str).str.strip().str.upper()
             mask = (df["Türü"] != "N") & (df["Türü"] != "F") & (df["Tarihi"].dt.month == secilen_ay_no)
             final_df = df[mask].copy()
@@ -97,7 +99,7 @@ if uploaded_file:
                 ozet["sirala_key"] = ozet["Adı Soyadı"].apply(turkce_sirala)
                 ozet = ozet.sort_values(by="sirala_key").drop(columns=["sirala_key"])
                 
-                # Formatlama (Ondalık basamak)
+                # Formatlama
                 ozet["Gün Sayısı"] = ozet["Gün Sayısı"].map('{:,.1f}'.format)
                 ozet.index = range(1, len(ozet) + 1)
                 
