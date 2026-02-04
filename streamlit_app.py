@@ -5,29 +5,35 @@ import io
 # Sayfa Yapılandırması
 st.set_page_config(page_title="Devamsızlık Takip Sistemi", layout="wide")
 
-# CSS SİHRİ: Sürükle-Bırak metinlerini Türkçeleştirme
+# CSS SİHRİ: Tüm İngilizce metinleri (Buton dahil) Türkçeleştirme
 st.markdown("""
     <style>
-    /* Sürükle bırak yazısını değiştirme */
-    section[data-testid="stFileUploader"] section {
-        padding: 1rem;
-    }
-    section[data-testid="stFileUploader"] label {
-        display: none;
-    }
+    /* 1. Sürükle bırak talimatlarını değiştirme */
     [data-testid="stFileUploaderDropzoneInstructions"] div span {
         display: none;
     }
     [data-testid="stFileUploaderDropzoneInstructions"] div::before {
         content: "Dosyayı buraya sürükleyip bırakın";
     }
-    [data-testid="stFileUploaderDropzoneInstructions"] div small {
-        display: none;
-    }
     [data-testid="stFileUploaderDropzoneInstructions"] div::after {
         content: "Dosya sınırı: 200MB (.xlsx veya .xls)";
+        display: block;
         font-size: 0.8em;
         color: gray;
+    }
+
+    /* 2. 'Browse Files' butonunu Türkçeleştirme */
+    [data-testid="stFileUploader"] button {
+        font-size: 0 !important;
+    }
+    [data-testid="stFileUploader"] button::before {
+        content: "Dosyalara Göz At";
+        font-size: 16px !important;
+    }
+
+    /* 3. Gereksiz uyarıları gizleme */
+    [data-testid="stFileUploader"] label {
+        display: none;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -41,7 +47,7 @@ def turkce_sirala(text):
 # Başlık ve Talimatlar
 st.title("📊 Devamsızlık Takip Uygulaması")
 st.markdown("""
-**Talimat:** e-Okul Devamsızlık Girişi sayfasında bulunan ekran raporlarından **OOK08001R060** kodlu raporu Excel olarak indirip aşağıya yükleyiniz.
+**Lütfen,** e-Okul Devamsızlık Girişi sayfasında bulunan ekran raporlarından **OOK08001R060** kodlu raporu Excel olarak indirip aşağıya yükleyiniz.
 """)
 
 # Dosya Yükleme Alanı
@@ -90,11 +96,11 @@ if uploaded_file:
                 ozet["sirala_key"] = ozet["Adı Soyadı"].apply(turkce_sirala)
                 ozet = ozet.sort_values(by="sirala_key").drop(columns=["sirala_key"])
                 
-                # Formatlama
+                # Formatlama (Ondalık basamak)
                 ozet["Gün Sayısı"] = ozet["Gün Sayısı"].map('{:,.1f}'.format)
                 ozet.index = range(1, len(ozet) + 1)
                 
-                # BİRLEŞTİRİLMİŞ ŞIK MESAJ
+                # Başarı Mesajı
                 st.success(f"✅ {secilen_ay_adi} ayı raporu hazır! Toplam {len(ozet)} öğrenci listelendi.")
                 
                 # Tablo Görünümü
