@@ -4,92 +4,95 @@ import io
 
 st.set_page_config(page_title="Devamsızlık Takip Sistemi", layout="wide")
 
-st.title("📊 Devamsızlık Takip Uygulaması (Gelişmiş Versiyon)")
-st.info("MEB dosyasını yükleyin. Sistem, başlıkları otomatik olarak tarayıp bulacaktır.")
+st.title("📊 Devamsızlık Takip Uygulaması")
+st.markdown("### MEB (e-Okul) Raporu İşleme Sistemi")
+st.info("Sistem; İsimleri F, Tarihleri K, Türleri M ve Günleri O sütunundan alacak şekilde ayarlandı.")
 
-uploaded_file = st.file_uploader("Excel dosyasını seçin (.xlsx veya .xls)", type=["xlsx", "xls"])
+uploaded_file = st.file_uploader("MEB'den aldığınız Excel dosyasını seçin", type=["xlsx", "xls"])
 
 if uploaded_file:
     df_raw = None
     
-    # 1. DOSYAYI OKUMA (EN ESNEK YÖNTEM)
+    # 1. DOSYAYI OKUMA
     try:
-        # Önce dosyayı ham halde oku (başlık belirlemeden)
-        df_raw = pd.read_excel(uploaded_file, header=None)
-    except:
+        # MEB dosyaları genellikle eski tip olduğu için xlrd öncelikli denenebilir
         try:
+            df_raw = pd.read_excel(uploaded_file, header=None)
+        except:
             uploaded_file.seek(0)
             df_raw = pd.read_excel(uploaded_file, header=None, engine='xlrd')
-        except:
-            st.error("Dosya okunamadı. Lütfen standart bir Excel dosyası yükleyin.")
-            st.stop()
+    except Exception as e:
+        st.error(f"Dosya okunamadı: {e}")
+        st.stop()
 
     if df_raw is not None:
-        # 2. DOĞRU BAŞLIK SATIRINI VE SÜTUNLARI BULMA
-        # Tabloyu tarayıp anahtar kelimeleri arıyoruz
-        name_col, date_col, type_col, day_col = None, None, None, None
-        header_idx = 0
-
-        for i, row in df_raw.head(30).iterrows():
-            row_str = row.astype(str).str.upper()
-            if row_str.str.contains("ADI SOYADI").any() or row_str.str.contains("ÖĞRENCİ NO").any():
-                header_idx = i
-                # Sütunları isimlerine göre eşleştir
-                for col_idx, value in enumerate(row):
-                    val_upper = str(value).upper()
-                    if "ADI SOYADI" in val_upper: name_col = col_idx
-                    if "TARİH" in val_upper: date_col = col_idx
-                    if "TÜR" in val_upper: type_col = col_idx
-                    if "GÜN" in val_upper: day_col = col_idx
-                break
-        
-        # Eğer otomatik bulamazsa senin verdiğin standart koordinatları kullan (E, J, L, N)
-        if name_col is None: name_col = 4
-        if date_col is None: date_col = 9
-        if type_col is None: type_col = 11
-        if day_col is None: day_col = 13
-
-        # Veriyi temizle ve sütunları al
         try:
-            df = df_raw.iloc[header_idx + 1:].copy()
-            df = df.iloc[:, [name_col, date_col, type_col, day_col]]
+            # 2. VERİLERİ SÜTUNLARDAN ÇEKME (Senin verdiğin koordinatlar)
+            # Python'da sayım 0'dan başladığı için:
+            # F = 5 (İsim), K = 10 (Tarih), M = 12 (Tür), O = 14 (Gün Sayısı)
+            
+            # Önce 6. satırdan (index 5) sonrasını alalım (Data başlangıcı)
+            df = df_raw.iloc[6:].copy() 
+            
+            # Belirlediğimiz sütunları seçelim
+            # Not: Eğer dosyanın sütun sayısı az ise hata vermemesi için kontrol ekliyoruz
+            df = df.iloc[:, [5, 10, 12, 14]]
             df.columns = ["Adı Soyadı", "Tarihi", "Türü", "Gün Sayısı"]
             
-            # Boşlukları ve geçersiz satırları temizle
-            df = df.dropna(subset=["Adı Soyadı"])
+            # 3. VERİ TEMİZLEME
+            # İsim alanı boş olan veya içinde "Adı Soyadı" yazan (başlık tekrarı) satırları at
+            df = df[df["Adı Soyadı"].notna()]
+            df = df[df["Adı Soyadı"].astype(str).str.contains("Adı Soyadı") == False]
+            
+            # Tarihleri düzelt (Türkiye formatı)
             df["Tarihi"] = pd.to_datetime(df["Tarihi"], errors='coerce', dayfirst=True)
             df = df.dropna(subset=["Tarihi"])
             
-            # Ay Seçimi
+            # Gün sayısını sayıya çevir
+            df["Gün Sayısı"] = pd.to_numeric(df["Gün Sayısı"], errors='coerce').fillna(0)
+            
+            # 4. AY SEÇİMİ VE FİLTRELEME
             aylar = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", 
                      "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
-            secilen_ay_adi = st.selectbox("Hangi Ayın Raporunu İstiyorsunuz?", aylar)
+            secilen_ay_adi = st.selectbox("Rapor İstediğiniz Ayı Seçin:", aylar)
             secilen_ay_no = aylar.index(secilen_ay_adi) + 1
             
-            # Filtreleme (N ve F'yi ele, Ayı seç)
+            # Türü temizle (N ve F'yi ele)
             df["Türü"] = df["Türü"].astype(str).str.strip().str.upper()
             mask = (df["Türü"] != "N") & (df["Türü"] != "F") & (df["Tarihi"].dt.month == secilen_ay_no)
             final_df = df[mask].copy()
 
-            # Raporu Göster
+            # 5. SONUÇLARI GÖSTER
+            st.divider()
             if not final_df.empty:
+                # İsimlere göre topla ve alfabetik diz
                 ozet = final_df.groupby("Adı Soyadı")["Gün Sayısı"].sum().reset_index()
                 ozet = ozet.sort_values("Adı Soyadı")
                 
-                st.success(f"✅ {secilen_ay_adi} ayı için sonuçlar hazır!")
-                st.dataframe(ozet, use_container_width=True)
+                st.success(f"✅ {secilen_ay_adi} ayı için toplam {len(ozet)} öğrenci listelendi.")
                 
+                # Tabloyu göster
+                st.table(ozet) # dataframe yerine table daha okunaklı olabilir
+                
+                # İndirme Butonu
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    ozet.to_excel(writer, index=False)
-                st.download_button("📥 Excel Raporunu İndir", output.getvalue(), f"Rapor_{secilen_ay_adi}.xlsx")
-            else:
-                st.warning(f"Seçilen ayda ({secilen_ay_adi}) kriterlere uygun kayıt bulunamadı.")
+                    ozet.to_excel(writer, index=False, sheet_name='Devamsizlik_Raporu')
                 
-                # Hata Ayıklama Yardımcısı (Sadece veri yoksa görünür)
-                with st.expander("Uygulama ne görüyor? (Burayı kontrol edin)"):
-                    st.write("Sizin dosyanızdaki sütunlar şunlar:")
+                st.download_button(
+                    label="📄 Sonuçları Excel Olarak İndir",
+                    data=output.getvalue(),
+                    file_name=f"Devamsizlik_Raporu_{secilen_ay_adi}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            else:
+                st.warning(f"Seçilen ayda ({secilen_ay_adi}) kriterlere uygun (N ve F harici) devamsızlık bulunamadı.")
+                
+                # Debug (Veri neden gelmiyor kontrolü)
+                with st.expander("Dosya İçeriği Kontrolü (Hata varsa buraya bakın)"):
+                    st.write("Uygulamanın dosyadan okuduğu ilk 10 satır:")
                     st.write(df.head(10))
-                    
+
         except Exception as e:
-            st.error(f"Veri işleme hatası: {e}")
+            st.error(f"Bir hata oluştu: {e}")
+            st.info("Not: MEB dosyasının yapısı beklenen (F, K, M, O) sütunlarından farklı olabilir.")
